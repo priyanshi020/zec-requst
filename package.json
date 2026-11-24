@@ -1,0 +1,14 @@
+{
+  "name": "zec-request",
+  "version": "0.1.0",
+  "description": "Zero-dependency Zcash address inspector and ZIP-321 payment request builder (library, CLI, web app).",
+  "type": "module",
+  "main": "src/zcash.js",
+  "bin": { "zec-request": "bin/zec-request.js" },
+  "scripts": {
+    "test": "node --test",
+    "start": "node server.js"
+  },
+  "license": "MIT",
+  "keywords": ["zcash", "zip-321", "payments", "shielded"]
+}

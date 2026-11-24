@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zec-request · Zcash payment links</title>
+<meta name="description" content="Build shielded Zcash payment links (ZIP-321) and decode Unified Addresses (ZIP-316) in your browser.">
+<style>
+  :root { --bg:#fafaf7; --fg:#1b1b1b; --muted:#666; --card:#fff; --line:#ddd; --accent:#b7791f; --ok:#1a7f37; --bad:#b42318; --chip:#f3ead7; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#141414; --fg:#eee; --muted:#999; --card:#1e1e1e; --line:#333; --accent:#f5b942; --ok:#4ac26b; --bad:#ff7b72; --chip:#2b2415; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui,"Noto Sans Devanagari",sans-serif; }
+  main { max-width:760px; margin:0 auto; padding:24px 16px 64px; }
+  header { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+  h1 { margin:0 0 4px; } .sub { color:var(--muted); margin:0 0 24px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+  label { display:block; font-size:14px; color:var(--muted); margin:10px 0 4px; }
+  input, textarea { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); font:inherit; }
+  textarea { min-height:70px; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:560px) { .row { grid-template-columns:1fr; } }
+  button { padding:8px 14px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); cursor:pointer; font:inherit; }
+  button.primary { background:var(--accent); color:#000; border-color:var(--accent); }
+  .status { font-size:14px; margin-top:6px; min-height:1.3em; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); }
+  code, .uri { font-family:ui-monospace,monospace; font-size:13px; word-break:break-all; }
+  .uri { background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:8px; margin:8px 0; }
+  #qr { display:flex; justify-content:center; padding:12px; background:#fff; border-radius:8px; margin-top:8px; }
+  .pay { border-top:1px dashed var(--line); margin-top:12px; padding-top:4px; }
+  .pay:first-of-type { border:0; margin:0; }
+  .warn { font-size:13px; color:var(--muted); }
+  .chip { display:inline-block; background:var(--chip); border:1px solid var(--line); border-radius:999px; padding:1px 10px; font-size:13px; margin:2px 4px 2px 0; }
+  .chip.pub { border-color:var(--bad); color:var(--bad); }
+  .recv { margin:6px 0; padding:8px; border:1px solid var(--line); border-radius:6px; }
+  details summary { cursor:pointer; font-weight:600; }
+  #lang { white-space:nowrap; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>zec-request</h1>
+      <p class="sub" data-i18n="sub"></p>
+    </div>
+    <button id="lang" aria-label="Switch language">हिन्दी</button>
+  </header>
+
+  <div class="card">
+    <h3 style="margin-top:0" data-i18n="h_build"></h3>
+    <div id="payments"></div>
+    <p><button id="add" data-i18n="add"></button></p>
+    <button class="primary" id="build" data-i18n="gen"></button>
+    <div class="status" id="buildStatus"></div>
+    <div id="out" hidden>
+      <div class="uri" id="uri"></div>
+      <button id="copy" data-i18n="copy"></button>
+      <a id="share" href="#" target="_blank" rel="noopener" style="margin-left:8px" data-i18n="share"></a>
+      <div id="qr"></div>
+      <p class="warn" data-i18n="scan"></p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0" data-i18n="h_inspect"></h3>
+    <label for="inspect" data-i18n="paste"></label>
+    <textarea id="inspect" placeholder="u1… / zs1… / t1… / zcash:…"></textarea>
+    <button id="inspectBtn" data-i18n="inspect"></button>
+    <button id="example" data-i18n="example"></button>
+    <div id="inspectOut" class="status"></div>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary data-i18n="h_learn"></summary>
+      <div id="learn"></div>
+    </details>
+  </div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script type="module">
+import { inspectAddress, buildRequest, parseRequest, encodeUnified } from '../src/zcash.js';
+
+const T = {
+  en: {
+    sub: 'Build shielded-first Zcash payment links (ZIP-321) with memos, and decode what is inside an address (ZIP-316). Runs entirely in your browser; nothing is sent anywhere.',
+    h_build: 'Payment request', add: '+ Add another recipient', gen: 'Generate link', copy: 'Copy link', share: 'Open shareable payment page ↗',
+    scan: 'Scan with a ZIP-321 capable wallet. Memos are encrypted on-chain only when sent to shielded receivers.',
+    h_inspect: 'Inspect / parse', paste: 'Paste an address or a zcash: URI', inspect: 'Inspect', example: 'Try an example',
+    addr: 'Recipient address', ph_addr: 'u1… (Unified recommended)', amt: 'Amount (ZEC)', ph_amt: 'optional, e.g. 0.05',
+    label: 'Label', ph_label: 'optional, e.g. Chai Shop', memo: 'Memo (≤512 bytes, shielded recipients only)', ph_memo: 'e.g. Order #42',
+    message: 'Message', ph_message: 'optional note shown by the wallet',
+    shielded: 'shielded', public_: 'PUBLIC', receivers: 'Receivers inside this address', amount: 'amount', notset: 'not set',
+    h_learn: 'New to Zcash? What are these address types?',
+    learn: `<p><b>Unified (u1…)</b>: one address that bundles several <i>receivers</i> (Orchard, Sapling, transparent). The sender's wallet picks the best one both sides support, so you never have to ask "which address type?". Recommended.</p>
+      <p><b>Orchard / Sapling</b>: shielded pools. Amounts, sender and receiver are encrypted on-chain, and a 512-byte private memo can be attached.</p>
+      <p><b>Transparent (t1…)</b>: public, like Bitcoin. Anyone can see balance and history. No memos.</p>
+      <p><b>Why this tool decodes addresses</b>: a Unified address is "jumbled" (F4Jumble) so any typo changes the whole string. Decoding it locally lets you verify exactly which receivers a payee gave you before you send.</p>`,
+    blurb: { unified: 'Unified address (ZIP-316): bundles several receivers in one string. Recommended for new payments.',
+      sapling: 'Sapling shielded address: private, supports encrypted memos.',
+      'transparent-p2pkh': 'Transparent address: public like Bitcoin. Amounts and addresses are visible on-chain. No memos.',
+      'transparent-p2sh': 'Transparent script-hash address: public. No memos.', sprout: 'Legacy Sprout address: deprecated; avoid.' },
+  },
+  hi: {
+    sub: 'मेमो के साथ शील्डेड-फर्स्ट Zcash पेमेंट लिंक (ZIP-321) बनाएँ और जानें कि किसी पते (ZIP-316) के अंदर क्या है। सब कुछ आपके ब्राउज़र में चलता है; कुछ भी कहीं नहीं भेजा जाता।',
+    h_build: 'पेमेंट रिक्वेस्ट', add: '+ एक और प्राप्तकर्ता जोड़ें', gen: 'लिंक बनाएँ', copy: 'लिंक कॉपी करें', share: 'शेयर करने योग्य पेमेंट पेज खोलें ↗',
+    scan: 'ZIP-321 सपोर्ट करने वाले वॉलेट से स्कैन करें। मेमो ऑन-चेन तभी एन्क्रिप्टेड रहता है जब वह शील्डेड रिसीवर को भेजा जाए।',
+    h_inspect: 'जाँचें / पार्स करें', paste: 'कोई पता या zcash: URI पेस्ट करें', inspect: 'जाँचें', example: 'उदाहरण आज़माएँ',
+    addr: 'प्राप्तकर्ता का पता', ph_addr: 'u1… (Unified सुझाया जाता है)', amt: 'राशि (ZEC)', ph_amt: 'वैकल्पिक, जैसे 0.05',
+    label: 'लेबल', ph_label: 'वैकल्पिक, जैसे चाय की दुकान', memo: 'मेमो (≤512 बाइट, केवल शील्डेड प्राप्तकर्ता)', ph_memo: 'जैसे ऑर्डर #42',
+    message: 'संदेश', ph_message: 'वैकल्पिक नोट जो वॉलेट दिखाएगा',
+    shielded: 'शील्डेड (निजी)', public_: 'सार्वजनिक', receivers: 'इस पते के अंदर के रिसीवर', amount: 'राशि', notset: 'तय नहीं',
+    h_learn: 'Zcash में नए हैं? ये पते के प्रकार क्या हैं?',
+    learn: `<p><b>Unified (u1…)</b>: एक ऐसा पता जिसमें कई <i>रिसीवर</i> (Orchard, Sapling, transparent) एक साथ होते हैं। भेजने वाला वॉलेट दोनों पक्षों के लिए सबसे अच्छा रिसीवर खुद चुन लेता है, इसलिए "कौन सा पता चाहिए?" पूछना नहीं पड़ता। सुझाया जाता है।</p>
+      <p><b>Orchard / Sapling</b>: शील्डेड पूल। राशि, भेजने वाला और पाने वाला ऑन-चेन एन्क्रिप्टेड रहते हैं, और 512 बाइट तक का निजी मेमो जोड़ा जा सकता है।</p>
+      <p><b>Transparent (t1…)</b>: Bitcoin की तरह सार्वजनिक। बैलेंस और इतिहास कोई भी देख सकता है। मेमो नहीं।</p>
+      <p><b>यह टूल पता क्यों डिकोड करता है</b>: Unified पता "जम्बल" (F4Jumble) किया होता है, इसलिए एक अक्षर की गलती पूरा पता बदल देती है। भेजने से पहले लोकल डिकोड करके आप ठीक-ठीक देख सकते हैं कि सामने वाले ने कौन से रिसीवर दिए हैं।</p>`,
+    blurb: { unified: 'Unified पता (ZIP-316): एक स्ट्रिंग में कई रिसीवर। नए पेमेंट के लिए सुझाया जाता है।',
+      sapling: 'Sapling शील्डेड पता: निजी, एन्क्रिप्टेड मेमो सपोर्ट करता है।',
+      'transparent-p2pkh': 'Transparent पता: Bitcoin की तरह सार्वजनिक। राशि और पते ऑन-चेन दिखते हैं। मेमो नहीं।',
+      'transparent-p2sh': 'Transparent स्क्रिप्ट-हैश पता: सार्वजनिक। मेमो नहीं।', sprout: 'पुराना Sprout पता: बंद हो चुका है; इस्तेमाल न करें।' },
+  },
+};
+let lang = 'en';
+if ((navigator.language || '').startsWith('hi')) lang = 'hi';
+try { const saved = localStorage.getItem('lang'); if (saved === 'en' || saved === 'hi') lang = saved; } catch {}
+const t = (k) => T[lang][k];
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+const payments = $('payments');
+
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
+  $('learn').innerHTML = t('learn');
+  $('lang').textContent = lang === 'en' ? 'हिन्दी' : 'English';
+  document.querySelectorAll('[data-k]').forEach((e) => { e.textContent = t(e.dataset.k); });
+  document.querySelectorAll('[data-p]').forEach((e) => { e.placeholder = t(e.dataset.p); });
+}
+
+function receiversHtml(r) {
+  if (!r.receivers) return '';
+  return `<div style="margin-top:8px"><b>${esc(t('receivers'))}</b>` + r.receivers.map((x) =>
+    `<div class="recv"><span class="chip ${x.shielded === false ? 'pub' : ''}">${esc(x.label)}</span>` +
+    `<span class="chip">${x.shielded === false ? esc(t('public_')) : esc(t('shielded'))}</span><br><code>${esc(x.data)}</code></div>`).join('') + '</div>';
+}
+
+function addPayment() {
+  const d = document.createElement('div');
+  d.className = 'pay';
+  d.innerHTML = `
+    <label data-k="addr"></label><input class="address" data-p="ph_addr" autocomplete="off">
+    <div class="status addrStatus"></div>
+    <div class="row">
+      <div><label data-k="amt"></label><input class="amount" inputmode="decimal" data-p="ph_amt"></div>
+      <div><label data-k="label"></label><input class="label" data-p="ph_label"></div>
+    </div>
+    <label data-k="memo"></label><textarea class="memo" data-p="ph_memo"></textarea>
+    <label data-k="message"></label><input class="message" data-p="ph_message">`;
+  payments.appendChild(d);
+  const input = d.querySelector('.address');
+  input.addEventListener('input', async () => {
+    const r = await inspectAddress(input.value);
+    const s = d.querySelector('.addrStatus');
+    if (!input.value.trim()) { s.textContent = ''; return; }
+    s.className = 'status addrStatus ' + (r.valid ? 'ok' : 'bad');
+    s.textContent = r.valid ? `✓ ${r.network} ${r.type} (${r.shielded ? t('shielded') : t('public_')})` : '✗ ' + r.error;
+  });
+  applyLang();
+}
+
+$('lang').onclick = () => { lang = lang === 'en' ? 'hi' : 'en'; try { localStorage.setItem('lang', lang); } catch {} applyLang(); };
+addPayment();
+$('add').onclick = addPayment;
+
+$('build').onclick = async () => {
+  const st = $('buildStatus');
+  try {
+    const list = [...payments.querySelectorAll('.pay')].map((d) => {
+      const g = (c) => d.querySelector('.' + c).value.trim();
+      return { address: g('address'), amount: g('amount'), memo: d.querySelector('.memo').value, label: g('label'), message: g('message') };
+    });
+    const uri = await buildRequest(list);
+    st.textContent = ''; st.className = 'status';
+    $('uri').textContent = uri; $('out').hidden = false;
+    $('share').href = new URL('pay.html', location.href).href + '#' + encodeURIComponent(uri);
+    $('qr').innerHTML = '';
+    if (window.QRCode) new QRCode($('qr'), { text: uri, width: 256, height: 256, correctLevel: QRCode.CorrectLevel.L });
+    else $('qr').textContent = '(QR library unavailable offline)';
+  } catch (e) { st.className = 'status bad'; st.textContent = e.message; $('out').hidden = true; }
+};
+$('copy').onclick = () => navigator.clipboard.writeText($('uri').textContent);
+
+// Official ZIP-316 test vector receivers (zcash-test-vectors), encoded on the fly.
+$('example').onclick = () => {
+  $('inspect').value = encodeUnified([
+    { typecode: 0, data: '7bb83570b8fae146e03c5331a020b1e0892f631d' },
+    { typecode: 2, data: 'd8ef8293d26de832e7193f296ba1922d90f122c6135bc231eebd91efdb03b1a8606771cd4fd6480574d43e' },
+  ]);
+  $('inspectBtn').click();
+};
+
+$('inspectBtn').onclick = async () => {
+  const out = $('inspectOut'), v = $('inspect').value.trim();
+  try {
+    if (v.toLowerCase().startsWith('zcash:')) {
+      const ps = await parseRequest(v);
+      out.className = 'status';
+      out.innerHTML = ps.map((p, i) => `<div class="pay"><b>#${i + 1}</b><br><code>${esc(p.address)}</code> (${esc(p.addressInfo.network)} ${esc(p.addressInfo.type)})<br>
+        ${esc(t('amount'))}: ${p.amount ? esc(p.amount) + ' ZEC' : '<i>' + esc(t('notset')) + '</i>'}${p.memo ? `<br>memo: ${esc(p.memo)}` : ''}${p.label ? `<br>${esc(t('label'))}: ${esc(p.label)}` : ''}${p.message ? `<br>${esc(t('message'))}: ${esc(p.message)}` : ''}</div>`).join('');
+    } else {
+      const r = await inspectAddress(v);
+      out.className = 'status ' + (r.valid ? 'ok' : 'bad');
+      out.innerHTML = r.valid
+        ? `✓ <b>${esc(r.network)} ${esc(r.type)}</b><br><span style="color:var(--fg)">${esc(T[lang].blurb[r.type] || r.blurb)}</span>${receiversHtml(r)}`
+        : '✗ ' + esc(r.error);
+    }
+  } catch (e) { out.className = 'status bad'; out.textContent = '✗ ' + e.message; }
+};
+</script>
+</body>
+</html>

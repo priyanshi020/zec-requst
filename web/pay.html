@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pay with ZEC · zec-request</title>
+<meta name="robots" content="noindex">
+<style>
+  :root { --bg:#fafaf7; --fg:#1b1b1b; --muted:#666; --card:#fff; --line:#ddd; --accent:#b7791f; --ok:#1a7f37; --bad:#b42318; --chip:#f3ead7; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#141414; --fg:#eee; --muted:#999; --card:#1e1e1e; --line:#333; --accent:#f5b942; --ok:#4ac26b; --bad:#ff7b72; --chip:#2b2415; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui,sans-serif; }
+  main { max-width:520px; margin:0 auto; padding:24px 16px 64px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px; margin-bottom:16px; }
+  h1 { font-size:22px; margin:0 0 4px; } .muted { color:var(--muted); font-size:14px; }
+  .amount { font-size:34px; font-weight:700; margin:8px 0; }
+  .chip { display:inline-block; background:var(--chip); border:1px solid var(--line); border-radius:999px; padding:1px 10px; font-size:13px; margin:2px 4px 2px 0; }
+  .chip.pub { border-color:var(--bad); color:var(--bad); }
+  .ok { color:var(--ok); } .bad { color:var(--bad); }
+  code { font-family:ui-monospace,monospace; font-size:13px; word-break:break-all; }
+  #qr { display:flex; justify-content:center; padding:12px; background:#fff; border-radius:8px; margin:12px 0; }
+  a.btn, button { display:inline-block; padding:10px 16px; border-radius:8px; border:1px solid var(--accent); background:var(--accent); color:#000; text-decoration:none; font:inherit; cursor:pointer; }
+  button.sec { background:var(--card); color:var(--fg); border-color:var(--line); }
+  .memo { background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:8px; margin:8px 0; }
+  .warn { border:1px solid var(--bad); border-radius:8px; padding:10px; margin:10px 0; font-size:14px; }
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script type="module">
+import { parseRequest, inspectAddress } from '../src/zcash.js';
+
+const app = document.getElementById('app');
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+
+// The payment request lives in the URL *fragment*, which browsers never send to any server.
+const uri = decodeURIComponent(location.hash.slice(1));
+
+async function render() {
+  if (!uri) {
+    app.innerHTML = '<div class="card"><h1>No payment request</h1><p class="muted">Create one with the <a href="index.html">builder</a>.</p></div>';
+    return;
+  }
+  let payments;
+  try { payments = await parseRequest(uri); }
+  catch (e) { app.innerHTML = `<div class="card"><h1 class="bad">Invalid payment request</h1><p>${esc(e.message)}</p></div>`; return; }
+
+  let html = '';
+  for (const [i, p] of payments.entries()) {
+    const info = await inspectAddress(p.address);
+    const shieldedOnly = info.receivers ? info.receivers.every((r) => r.shielded !== false) : info.shielded;
+    const hasPublic = info.receivers ? info.receivers.some((r) => r.shielded === false) : !info.shielded;
+    html += `<div class="card">
+      <h1>${esc(p.label || 'Payment request')}${payments.length > 1 ? ` <span class="muted">(${i + 1}/${payments.length})</span>` : ''}</h1>
+      ${p.message ? `<p class="muted">${esc(p.message)}</p>` : ''}
+      <div class="amount">${p.amount ? esc(p.amount) + ' ZEC' : '<span class="muted" style="font-size:18px">Amount: you choose</span>'}</div>
+      ${p.memo ? `<div class="muted">Private memo (sent encrypted):</div><div class="memo">${esc(p.memo)}</div>` : ''}
+      <div class="muted">To (${esc(info.network)} ${esc(info.type)})</div>
+      <code>${esc(p.address)}</code>
+      <div style="margin-top:8px">
+        ${(info.receivers || [{ label: info.type, shielded: info.shielded }]).map((r) =>
+          `<span class="chip ${r.shielded === false ? 'pub' : ''}">${esc(r.label)} · ${r.shielded === false ? 'PUBLIC' : 'shielded'}</span>`).join('')}
+      </div>
+      ${shieldedOnly ? '<p class="ok">✓ Private: only shielded receivers.</p>' : ''}
+      ${hasPublic && !shieldedOnly ? '<div class="warn">⚠ This address also contains a <b>public (transparent)</b> receiver. Your wallet should pick the shielded one; if it uses the public one, the amount will be visible on-chain.</div>' : ''}
+      ${!info.shielded ? '<div class="warn">⚠ Transparent address: this payment will be <b>public</b> and cannot carry a memo.</div>' : ''}
+    </div>`;
+  }
+  html += `<div class="card" style="text-align:center">
+      <div id="qr"></div>
+      <a class="btn" href="${esc(uri)}">Open in wallet</a>
+      <button class="sec" id="copy">Copy payment link</button>
+      <p class="muted">Scan with a ZIP-321 capable Zcash wallet (Zashi, Ywallet, …) or tap the button on your phone.<br>
+      This page runs entirely in your browser; the request never leaves it.</p>
+    </div>`;
+  app.innerHTML = html;
+  if (window.QRCode) new QRCode(document.getElementById('qr'), { text: uri, width: 240, height: 240, correctLevel: QRCode.CorrectLevel.L });
+  document.getElementById('copy').onclick = () => navigator.clipboard.writeText(uri);
+}
+render();
+window.addEventListener('hashchange', () => location.reload());
+</script>
+</body>
+</html>
